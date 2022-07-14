@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2020 the original author or authors.
+ * Copyright 2002-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -50,12 +50,13 @@ import org.springframework.web.util.UriComponentsBuilder;
  * A SockJS implementation of
  * {@link org.springframework.web.socket.client.WebSocketClient WebSocketClient}
  * with fallback alternatives that simulate a WebSocket interaction through plain
- * HTTP streaming and long polling techniques..
+ * HTTP streaming and long polling techniques.
  *
  * <p>Implements {@link Lifecycle} in order to propagate lifecycle events to
  * the transports it is configured with.
  *
  * @author Rossen Stoyanchev
+ * @author Sam Brannen
  * @since 4.1
  * @see <a href="https://github.com/sockjs/sockjs-client">https://github.com/sockjs/sockjs-client</a>
  * @see org.springframework.web.socket.sockjs.client.Transport
@@ -114,8 +115,8 @@ public class SockJsClient implements WebSocketClient, Lifecycle {
 
 	private static InfoReceiver initInfoReceiver(List<Transport> transports) {
 		for (Transport transport : transports) {
-			if (transport instanceof InfoReceiver) {
-				return ((InfoReceiver) transport);
+			if (transport instanceof InfoReceiver infoReceiver) {
+				return infoReceiver;
 			}
 		}
 		return new RestTemplateXhrTransport();
@@ -202,11 +203,8 @@ public class SockJsClient implements WebSocketClient, Lifecycle {
 		if (!isRunning()) {
 			this.running = true;
 			for (Transport transport : this.transports) {
-				if (transport instanceof Lifecycle) {
-					Lifecycle lifecycle = (Lifecycle) transport;
-					if (!lifecycle.isRunning()) {
-						lifecycle.start();
-					}
+				if (transport instanceof Lifecycle lifecycle && !lifecycle.isRunning()) {
+					lifecycle.start();
 				}
 			}
 		}
@@ -217,11 +215,8 @@ public class SockJsClient implements WebSocketClient, Lifecycle {
 		if (isRunning()) {
 			this.running = false;
 			for (Transport transport : this.transports) {
-				if (transport instanceof Lifecycle) {
-					Lifecycle lifecycle = (Lifecycle) transport;
-					if (lifecycle.isRunning()) {
-						lifecycle.stop();
-					}
+				if (transport instanceof Lifecycle lifecycle && lifecycle.isRunning()) {
+					lifecycle.stop();
 				}
 			}
 		}
@@ -342,7 +337,7 @@ public class SockJsClient implements WebSocketClient, Lifecycle {
 	}
 
 	/**
-	 * By default the result of a SockJS "Info" request, including whether the
+	 * By default, the result of a SockJS "Info" request, including whether the
 	 * server has WebSocket disabled and how long the request took (used for
 	 * calculating transport timeout time) is cached. This method can be used to
 	 * clear that cache hence causing it to re-populate.

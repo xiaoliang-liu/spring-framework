@@ -16,8 +16,8 @@
 
 package org.springframework.web.servlet.mvc.method;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import org.springframework.core.Ordered;
 import org.springframework.lang.Nullable;
@@ -62,7 +62,7 @@ public abstract class AbstractHandlerMethodAdapter extends WebContentGenerator i
 	/**
 	 * This implementation expects the handler to be an {@link HandlerMethod}.
 	 * @param handler the handler instance to check
-	 * @return whether or not this adapter can adapt the given handler
+	 * @return whether this adapter can adapt the given handler
 	 */
 	@Override
 	public final boolean supports(Object handler) {
@@ -70,9 +70,9 @@ public abstract class AbstractHandlerMethodAdapter extends WebContentGenerator i
 	}
 
 	/**
-	 * Given a handler method, return whether or not this adapter can support it.
+	 * Given a handler method, return whether this adapter can support it.
 	 * @param handlerMethod the handler method to check
-	 * @return whether or not this adapter can adapt the given method
+	 * @return whether this adapter can adapt the given method
 	 */
 	protected abstract boolean supportsInternal(HandlerMethod handlerMethod);
 
@@ -111,7 +111,7 @@ public abstract class AbstractHandlerMethodAdapter extends WebContentGenerator i
 	}
 
 	/**
-	 * Same contract as for {@link javax.servlet.http.HttpServlet#getLastModified(HttpServletRequest)}.
+	 * Same contract as for {@link jakarta.servlet.http.HttpServlet#getLastModified(HttpServletRequest)}.
 	 * @param request current HTTP request
 	 * @param handlerMethod handler method to use
 	 * @return the lastModified value for the given handler

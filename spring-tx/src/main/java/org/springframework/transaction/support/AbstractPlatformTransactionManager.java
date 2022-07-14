@@ -953,7 +953,7 @@ public abstract class AbstractPlatformTransactionManager implements PlatformTran
 			}
 			else if (!synchronizations.isEmpty()) {
 				// Existing transaction that we participate in, controlled outside
-				// of the scope of this Spring transaction manager -> try to register
+				// the scope of this Spring transaction manager -> try to register
 				// an afterCompletion callback with the existing (JTA) transaction.
 				registerAfterCompletionWithExistingTransaction(status.getTransaction(), synchronizations);
 			}
@@ -1152,8 +1152,8 @@ public abstract class AbstractPlatformTransactionManager implements PlatformTran
 	 * @see DefaultTransactionStatus#isLocalRollbackOnly()
 	 * @see org.springframework.transaction.TransactionStatus#setRollbackOnly()
 	 * @see org.springframework.transaction.UnexpectedRollbackException
-	 * @see javax.transaction.UserTransaction#commit()
-	 * @see javax.transaction.RollbackException
+	 * @see jakarta.transaction.UserTransaction#commit()
+	 * @see jakarta.transaction.RollbackException
 	 */
 	protected boolean shouldCommitOnGlobalRollbackOnly() {
 		return false;

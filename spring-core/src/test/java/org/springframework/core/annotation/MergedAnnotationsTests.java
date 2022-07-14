@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2020 the original author or authors.
+ * Copyright 2002-2022 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -24,6 +24,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 import java.lang.reflect.AnnotatedElement;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -35,12 +36,13 @@ import java.util.NoSuchElementException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import javax.annotation.Resource;
-
+import jakarta.annotation.Resource;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.MergedAnnotation.Adapt;
+import org.springframework.core.annotation.MergedAnnotations.Search;
 import org.springframework.core.annotation.MergedAnnotations.SearchStrategy;
 import org.springframework.core.annotation.subpackage.NonPublicAnnotatedClass;
 import org.springframework.core.testfixture.stereotype.Component;
@@ -73,6 +75,201 @@ import static org.assertj.core.api.Assertions.entry;
  * @see MergedAnnotationClassLoaderTests
  */
 class MergedAnnotationsTests {
+
+	/**
+	 * Subset (and duplication) of other tests in {@link MergedAnnotationsTests}
+	 * that verify behavior of the fluent {@link Search} API.
+	 * @since 6.0
+	 */
+	@Nested
+	class FluentSearchApiTests {
+
+		@Test
+		void preconditions() {
+			assertThatIllegalArgumentException()
+				.isThrownBy(() -> MergedAnnotations.search(null))
+				.withMessage("SearchStrategy must not be null");
+
+			Search search = MergedAnnotations.search(SearchStrategy.SUPERCLASS);
+
+			assertThatIllegalArgumentException()
+				.isThrownBy(() -> search.withEnclosingClasses(null))
+				.withMessage("Predicate must not be null");
+			assertThatIllegalStateException()
+				.isThrownBy(() -> search.withEnclosingClasses(Search.always))
+				.withMessage("A custom 'searchEnclosingClass' predicate can only be combined with SearchStrategy.TYPE_HIERARCHY");
+
+			assertThatIllegalArgumentException()
+				.isThrownBy(() -> search.withAnnotationFilter(null))
+				.withMessage("AnnotationFilter must not be null");
+
+			assertThatIllegalArgumentException()
+				.isThrownBy(() -> search.withRepeatableContainers(null))
+				.withMessage("RepeatableContainers must not be null");
+
+			assertThatIllegalArgumentException()
+				.isThrownBy(() -> search.from(null))
+				.withMessage("AnnotatedElement must not be null");
+		}
+
+		@Test
+		void searchFromClassWithDefaultAnnotationFilterAndDefaultRepeatableContainers() {
+			Stream<Class<?>> classes = MergedAnnotations.search(SearchStrategy.DIRECT)
+				.from(TransactionalComponent.class)
+				.stream()
+				.map(MergedAnnotation::getType);
+			assertThat(classes).containsExactly(Transactional.class, Component.class, Indexed.class);
+		}
+
+		@Test
+		void searchFromClassWithCustomAnnotationFilter() {
+			Stream<Class<?>> classes = MergedAnnotations.search(SearchStrategy.DIRECT)
+				.withAnnotationFilter(annotationName -> annotationName.endsWith("Indexed"))
+				.from(TransactionalComponent.class)
+				.stream()
+				.map(MergedAnnotation::getType);
+			assertThat(classes).containsExactly(Transactional.class, Component.class);
+		}
+
+		@Test
+		void searchFromClassWithCustomRepeatableContainers() {
+			assertThat(MergedAnnotations.from(HierarchyClass.class).stream(TestConfiguration.class)).isEmpty();
+			RepeatableContainers containers = RepeatableContainers.of(TestConfiguration.class, Hierarchy.class);
+
+			MergedAnnotations annotations = MergedAnnotations.search(SearchStrategy.DIRECT)
+				.withRepeatableContainers(containers)
+				.from(HierarchyClass.class);
+			assertThat(annotations.stream(TestConfiguration.class))
+				.map(annotation -> annotation.getString("location"))
+				.containsExactly("A", "B");
+			assertThat(annotations.stream(TestConfiguration.class))
+				.map(annotation -> annotation.getString("value"))
+				.containsExactly("A", "B");
+		}
+
+		/**
+		 * @since 6.0
+		 */
+		@Test
+		void searchFromNonAnnotatedInnerClassWithAnnotatedEnclosingClassWithEnclosingClassPredicates() {
+			Class<?> testCase = AnnotatedClass.NonAnnotatedInnerClass.class;
+			Search search = MergedAnnotations.search(SearchStrategy.TYPE_HIERARCHY);
+
+			assertThat(search.from(testCase).stream()).isEmpty();
+			assertThat(search.withEnclosingClasses(Search.never).from(testCase).stream()).isEmpty();
+			assertThat(search.withEnclosingClasses(ClassUtils::isStaticClass).from(testCase).stream()).isEmpty();
+
+			Stream<Class<?>> classes = search.withEnclosingClasses(ClassUtils::isInnerClass)
+					.from(testCase)
+					.stream()
+					.map(MergedAnnotation::getType);
+			assertThat(classes).containsExactly(Component.class, Indexed.class);
+
+			classes = search.withEnclosingClasses(Search.always)
+					.from(testCase)
+					.stream()
+					.map(MergedAnnotation::getType);
+			assertThat(classes).containsExactly(Component.class, Indexed.class);
+
+			classes = search.withEnclosingClasses(ClassUtils::isInnerClass)
+					.withRepeatableContainers(RepeatableContainers.none())
+					.withAnnotationFilter(annotationName -> annotationName.endsWith("Indexed"))
+					.from(testCase)
+					.stream()
+					.map(MergedAnnotation::getType);
+			assertThat(classes).containsExactly(Component.class);
+		}
+
+		/**
+		 * @since 6.0
+		 */
+		@Test
+		void searchFromNonAnnotatedStaticNestedClassWithAnnotatedEnclosingClassWithEnclosingClassPredicates() {
+			Class<?> testCase = AnnotatedClass.NonAnnotatedStaticNestedClass.class;
+			Search search = MergedAnnotations.search(SearchStrategy.TYPE_HIERARCHY);
+
+			assertThat(search.from(testCase).stream()).isEmpty();
+			assertThat(search.withEnclosingClasses(Search.never).from(testCase).stream()).isEmpty();
+			assertThat(search.withEnclosingClasses(ClassUtils::isInnerClass).from(testCase).stream()).isEmpty();
+
+			Stream<Class<?>> classes = search.withEnclosingClasses(ClassUtils::isStaticClass)
+					.from(testCase)
+					.stream()
+					.map(MergedAnnotation::getType);
+			assertThat(classes).containsExactly(Component.class, Indexed.class);
+
+			classes = search.withEnclosingClasses(Search.always)
+					.from(testCase)
+					.stream()
+					.map(MergedAnnotation::getType);
+			assertThat(classes).containsExactly(Component.class, Indexed.class);
+		}
+
+	}
+
+	@Nested
+	class ConventionBasedAnnotationAttributeOverrideTests {
+
+		@Test
+		void getWithInheritedAnnotationsAttributesWithConventionBasedComposedAnnotation() {
+			MergedAnnotation<?> annotation =
+					MergedAnnotations.from(ConventionBasedComposedContextConfigurationClass.class,
+						SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class);
+			assertThat(annotation.isPresent()).isTrue();
+			assertThat(annotation.getStringArray("locations")).containsExactly("explicitDeclaration");
+			assertThat(annotation.getStringArray("value")).containsExactly("explicitDeclaration");
+		}
+
+		@Test
+		void getWithInheritedAnnotationsFromHalfConventionBasedAndHalfAliasedComposedAnnotation1() {
+			// SPR-13554: convention mapping mixed with AliasFor annotations
+			// xmlConfigFiles can be used because it has an AliasFor annotation
+			MergedAnnotation<?> annotation =
+					MergedAnnotations.from(HalfConventionBasedAndHalfAliasedComposedContextConfigurationClass1.class,
+						SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class);
+			assertThat(annotation.getStringArray("locations")).containsExactly("explicitDeclaration");
+			assertThat(annotation.getStringArray("value")).containsExactly("explicitDeclaration");
+		}
+
+		@Test
+		void getWithInheritedAnnotationsFromHalfConventionBasedAndHalfAliasedComposedAnnotation2() {
+			// SPR-13554: convention mapping mixed with AliasFor annotations
+			// locations doesn't apply because it has no AliasFor annotation
+			MergedAnnotation<?> annotation =
+					MergedAnnotations.from(HalfConventionBasedAndHalfAliasedComposedContextConfigurationClass2.class,
+						SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class);
+			assertThat(annotation.getStringArray("locations")).isEmpty();
+			assertThat(annotation.getStringArray("value")).isEmpty();
+		}
+
+		@Test
+		void getWithInheritedAnnotationsFromInvalidConventionBasedComposedAnnotation() {
+			assertThatExceptionOfType(AnnotationConfigurationException.class)
+				.isThrownBy(() -> MergedAnnotations.from(InvalidConventionBasedComposedContextConfigurationClass.class,
+							SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class));
+		}
+
+		@Test
+		void getWithTypeHierarchyWithSingleElementOverridingAnArrayViaConvention() {
+			testGetWithTypeHierarchy(ConventionBasedSinglePackageComponentScanClass.class, "com.example.app.test");
+		}
+
+		@Test
+		void getWithTypeHierarchyWithLocalAliasesThatConflictWithAttributesInMetaAnnotationByConvention() {
+			MergedAnnotation<?> annotation =
+					MergedAnnotations.from(SpringApplicationConfigurationClass.class, SearchStrategy.TYPE_HIERARCHY)
+						.get(ContextConfiguration.class);
+			assertThat(annotation.getStringArray("locations")).isEmpty();
+			assertThat(annotation.getStringArray("value")).isEmpty();
+			assertThat(annotation.getClassArray("classes")).containsExactly(Number.class);
+		}
+
+		@Test
+		void getWithTypeHierarchyOnMethodWithSingleElementOverridingAnArrayViaConvention() throws Exception {
+			testGetWithTypeHierarchyWebMapping(WebController.class.getMethod("postMappedWithPathAttribute"));
+		}
+
+	}
 
 	@Test
 	void fromPreconditions() {
@@ -346,41 +543,7 @@ class MergedAnnotationsTests {
 		assertThat(annotation.isPresent()).isTrue();
 	}
 
-	@Test
-	void getWithInheritedAnnotationsAttributesWithConventionBasedComposedAnnotation() {
-		MergedAnnotation<?> annotation = MergedAnnotations.from(
-				ConventionBasedComposedContextConfigurationClass.class,
-				SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class);
-		assertThat(annotation.isPresent()).isTrue();
-		assertThat(annotation.getStringArray("locations")).containsExactly(
-				"explicitDeclaration");
-		assertThat(annotation.getStringArray("value")).containsExactly(
-				"explicitDeclaration");
-	}
 
-	@Test
-	void getWithInheritedAnnotationsFromHalfConventionBasedAndHalfAliasedComposedAnnotation1() {
-		// SPR-13554: convention mapping mixed with AliasFor annotations
-		// xmlConfigFiles can be used because it has an AliasFor annotation
-		MergedAnnotation<?> annotation = MergedAnnotations.from(
-				HalfConventionBasedAndHalfAliasedComposedContextConfigurationClass1.class,
-				SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class);
-		assertThat(annotation.getStringArray("locations")).containsExactly(
-				"explicitDeclaration");
-		assertThat(annotation.getStringArray("value")).containsExactly(
-				"explicitDeclaration");
-	}
-
-	@Test
-	void withInheritedAnnotationsFromHalfConventionBasedAndHalfAliasedComposedAnnotation2() {
-		// SPR-13554: convention mapping mixed with AliasFor annotations
-		// locations doesn't apply because it has no AliasFor annotation
-		MergedAnnotation<?> annotation = MergedAnnotations.from(
-				HalfConventionBasedAndHalfAliasedComposedContextConfigurationClass2.class,
-				SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class);
-		assertThat(annotation.getStringArray("locations")).isEmpty();
-		assertThat(annotation.getStringArray("value")).isEmpty();
-	}
 
 	@Test
 	void withInheritedAnnotationsFromAliasedComposedAnnotation() {
@@ -456,13 +619,6 @@ class MergedAnnotationsTests {
 		assertThat(annotation.getStringArray("locations")).isEqualTo(expected);
 		assertThat(annotation.getStringArray("value")).isEqualTo(expected);
 		assertThat(annotation.getClassArray("classes")).isEmpty();
-	}
-
-	@Test
-	void getWithInheritedAnnotationsFromInvalidConventionBasedComposedAnnotation() {
-		assertThatExceptionOfType(AnnotationConfigurationException.class).isThrownBy(() ->
-				MergedAnnotations.from(InvalidConventionBasedComposedContextConfigurationClass.class,
-						SearchStrategy.INHERITED_ANNOTATIONS).get(ContextConfiguration.class));
 	}
 
 	@Test
@@ -628,11 +784,6 @@ class MergedAnnotationsTests {
 	}
 
 	@Test
-	void getWithTypeHierarchyWithSingleElementOverridingAnArrayViaConvention() {
-		testGetWithTypeHierarchy(ConventionBasedSinglePackageComponentScanClass.class, "com.example.app.test");
-	}
-
-	@Test
 	void getWithTypeHierarchyWithSingleElementOverridingAnArrayViaAliasFor() {
 		testGetWithTypeHierarchy(AliasForBasedSinglePackageComponentScanClass.class, "com.example.app.test");
 	}
@@ -658,22 +809,6 @@ class MergedAnnotationsTests {
 				"test.properties");
 		assertThat(testPropSource.getStringArray("value")).containsExactly(
 				"test.properties");
-	}
-
-	@Test
-	void getWithTypeHierarchyWithLocalAliasesThatConflictWithAttributesInMetaAnnotationByConvention() {
-		MergedAnnotation<?> annotation = MergedAnnotations.from(
-				SpringApplicationConfigurationClass.class, SearchStrategy.TYPE_HIERARCHY).get(
-						ContextConfiguration.class);
-		assertThat(annotation.getStringArray("locations")).isEmpty();
-		assertThat(annotation.getStringArray("value")).isEmpty();
-		assertThat(annotation.getClassArray("classes")).containsExactly(Number.class);
-	}
-
-	@Test
-	void getWithTypeHierarchyOnMethodWithSingleElementOverridingAnArrayViaConvention() throws Exception {
-		testGetWithTypeHierarchyWebMapping(
-				WebController.class.getMethod("postMappedWithPathAttribute"));
 	}
 
 	@Test
@@ -712,20 +847,7 @@ class MergedAnnotationsTests {
 	}
 
 	@Test
-	void streamTypeHierarchyAndEnclosingClassesFromNonAnnotatedInnerClassWithAnnotatedEnclosingClass() {
-		Stream<Class<?>> classes = MergedAnnotations.from(AnnotatedClass.NonAnnotatedInnerClass.class,
-				SearchStrategy.TYPE_HIERARCHY_AND_ENCLOSING_CLASSES).stream().map(MergedAnnotation::getType);
-		assertThat(classes).containsExactly(Component.class, Indexed.class);
-	}
-
-	@Test
-	void streamTypeHierarchyAndEnclosingClassesFromNonAnnotatedStaticNestedClassWithAnnotatedEnclosingClass() {
-		Stream<Class<?>> classes = MergedAnnotations.from(AnnotatedClass.NonAnnotatedStaticNestedClass.class,
-				SearchStrategy.TYPE_HIERARCHY_AND_ENCLOSING_CLASSES).stream().map(MergedAnnotation::getType);
-		assertThat(classes).containsExactly(Component.class, Indexed.class);
-	}
-
-	@Test
+	@SuppressWarnings("deprecation")
 	void getFromMethodWithMethodAnnotationOnLeaf() throws Exception {
 		Method method = Leaf.class.getMethod("annotatedOnLeaf");
 		assertThat(method.getAnnotation(Order.class)).isNotNull();
@@ -1153,7 +1275,7 @@ class MergedAnnotationsTests {
 				SearchStrategy.INHERITED_ANNOTATIONS).get(
 						Transactional.class).getAggregateIndex()).isEqualTo(0);
 		// Since we're not traversing interface hierarchies the following,
-		// though perhaps counter intuitive, must be false:
+		// though perhaps counterintuitive, must be false:
 		assertThat(MergedAnnotations.from(SubInheritedAnnotationInterface.class,
 				SearchStrategy.INHERITED_ANNOTATIONS).get(
 						Transactional.class).getAggregateIndex()).isEqualTo(-1);
@@ -1418,6 +1540,38 @@ class MergedAnnotationsTests {
 		// It doesn't make sense to synthesize @GeneratedValue since it declares zero attributes with aliases.
 		assertThat(synthesizedGeneratedValue).isNotInstanceOf(SynthesizedAnnotation.class);
 		assertThat(generatedValue).isSameAs(synthesizedGeneratedValue);
+	}
+
+	@Test  // gh-28716
+	void synthesizeWhenUsingMergedAnnotationsFromApi() {
+		Field directlyAnnotatedField = ReflectionUtils.findField(DomainType.class, "directlyAnnotated");
+		MergedAnnotations mergedAnnotations = MergedAnnotations.from(directlyAnnotatedField);
+		RootAnnotation rootAnnotation = mergedAnnotations.get(RootAnnotation.class).synthesize();
+		assertThat(rootAnnotation.flag()).isFalse();
+		assertThat(rootAnnotation).isNotInstanceOf(SynthesizedAnnotation.class);
+
+		Field metaAnnotatedField = ReflectionUtils.findField(DomainType.class, "metaAnnotated");
+		mergedAnnotations = MergedAnnotations.from(metaAnnotatedField);
+		rootAnnotation = mergedAnnotations.get(RootAnnotation.class).synthesize();
+		assertThat(rootAnnotation.flag()).isTrue();
+		assertThat(rootAnnotation).isInstanceOf(SynthesizedAnnotation.class);
+
+		Field metaMetaAnnotatedField = ReflectionUtils.findField(DomainType.class, "metaMetaAnnotated");
+		mergedAnnotations = MergedAnnotations.from(metaMetaAnnotatedField);
+		rootAnnotation = mergedAnnotations.get(RootAnnotation.class).synthesize();
+		assertThat(rootAnnotation.flag()).isTrue();
+		assertThat(rootAnnotation).isInstanceOf(SynthesizedAnnotation.class);
+	}
+
+	@Test  // gh-28704
+	void synthesizeShouldNotSynthesizeNonsynthesizableAnnotationsWhenUsingMergedAnnotationsFromApi() {
+		MergedAnnotations mergedAnnotations = MergedAnnotations.from(SecurityConfig.class);
+
+		EnableWebSecurity enableWebSecurity = mergedAnnotations.get(EnableWebSecurity.class).synthesize();
+		assertThat(enableWebSecurity).isNotInstanceOf(SynthesizedAnnotation.class);
+
+		EnableGlobalAuthentication enableGlobalAuthentication = mergedAnnotations.get(EnableGlobalAuthentication.class).synthesize();
+		assertThat(enableGlobalAuthentication).isNotInstanceOf(SynthesizedAnnotation.class);
 	}
 
 	/**
@@ -1700,7 +1854,7 @@ class MergedAnnotationsTests {
 		assertThat(componentScan).isNotNull();
 		assertThat(componentScan.value().pattern()).isEqualTo("*Foo");
 		Map<String, Object> map = MergedAnnotation.from(componentScan).asMap(
-				annotation -> new LinkedHashMap<String, Object>(),
+				annotation -> new LinkedHashMap<>(),
 				Adapt.ANNOTATION_TO_MAP);
 		Map<String, Object> filterMap = (Map<String, Object>) map.get("value");
 		assertThat(filterMap.get("pattern")).isEqualTo("*Foo");
@@ -1720,7 +1874,7 @@ class MergedAnnotationsTests {
 				ComponentScan.class);
 		assertThat(componentScan).isNotNull();
 		Map<String, Object> map = MergedAnnotation.from(componentScan).asMap(
-				annotation -> new LinkedHashMap<String, Object>(),
+				annotation -> new LinkedHashMap<>(),
 				Adapt.ANNOTATION_TO_MAP);
 		Map<String, Object>[] filters = (Map[]) map.get("excludeFilters");
 		List<String> patterns = Arrays.stream(filters).map(
@@ -1861,20 +2015,52 @@ class MergedAnnotationsTests {
 		Method methodWithPath = WebController.class.getMethod("handleMappedWithPathAttribute");
 		RequestMapping webMappingWithAliases = methodWithPath.getAnnotation(RequestMapping.class);
 		assertThat(webMappingWithAliases).isNotNull();
+
 		Method methodWithPathAndValue = WebController.class.getMethod("handleMappedWithSamePathAndValueAttributes");
 		RequestMapping webMappingWithPathAndValue = methodWithPathAndValue.getAnnotation(RequestMapping.class);
 		assertThat(methodWithPathAndValue).isNotNull();
+
 		RequestMapping synthesizedWebMapping1 = MergedAnnotation.from(webMappingWithAliases).synthesize();
 		RequestMapping synthesizedWebMapping2 = MergedAnnotation.from(webMappingWithPathAndValue).synthesize();
+
 		assertThat(webMappingWithAliases.toString()).isNotEqualTo(synthesizedWebMapping1.toString());
+
+		// The unsynthesized annotation for handleMappedWithSamePathAndValueAttributes()
+		// should produce almost the same toString() results as synthesized annotations for
+		// handleMappedWithPathAttribute() on Java 9 or higher; however, due to multiple changes
+		// in the JDK's toString() implementation for annotations in JDK 9, 14, and 19,
+		// we do not test the JDK implementation.
+		// assertToStringForWebMappingWithPathAndValue(webMappingWithPathAndValue);
+
 		assertToStringForWebMappingWithPathAndValue(synthesizedWebMapping1);
 		assertToStringForWebMappingWithPathAndValue(synthesizedWebMapping2);
 	}
 
 	private void assertToStringForWebMappingWithPathAndValue(RequestMapping webMapping) {
-		String prefix = "@" + RequestMapping.class.getName() + "(";
-		assertThat(webMapping.toString()).startsWith(prefix).contains("value=[/test]",
-				"path=[/test]", "name=bar", "method=", "[GET, POST]").endsWith(")");
+		assertThat(webMapping.toString())
+			.startsWith("@org.springframework.core.annotation.MergedAnnotationsTests.RequestMapping(")
+			.contains(
+				// Strings
+				"value={\"/test\"}", "path={\"/test\"}", "name=\"bar\"",
+				// Characters
+				"ch='X'", "chars={'X'}",
+				// Enums
+				"method={GET, POST}",
+				// Classes
+				"clazz=org.springframework.core.annotation.MergedAnnotationsTests.RequestMethod.class",
+				"classes={int[][].class, org.springframework.core.annotation.MergedAnnotationsTests.RequestMethod[].class}",
+				// Bytes
+				"byteValue=(byte) 0xFF", "bytes={(byte) 0xFF}",
+				// Shorts
+				"shortValue=9876", "shorts={9876}",
+				// Longs
+				"longValue=42L", "longs={42L}",
+				// Floats
+				"floatValue=3.14f", "floats={3.14f}",
+				// Doubles
+				"doubleValue=99.999d", "doubles={99.999d}"
+			)
+			.endsWith(")");
 	}
 
 	@Test
@@ -2107,7 +2293,7 @@ class MergedAnnotationsTests {
 		}
 	}
 
-	static interface NonAnnotatedInterface {
+	interface NonAnnotatedInterface {
 	}
 
 	@TransactionalComponent
@@ -2239,6 +2425,8 @@ class MergedAnnotationsTests {
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface ConventionBasedComposedContextConfiguration {
 
+		// Do NOT use @AliasFor here until Spring 6.1
+		// @AliasFor(annotation = ContextConfiguration.class)
 		String[] locations() default {};
 	}
 
@@ -2246,6 +2434,8 @@ class MergedAnnotationsTests {
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface InvalidConventionBasedComposedContextConfiguration {
 
+		// Do NOT use @AliasFor here until Spring 6.1
+		// @AliasFor(annotation = ContextConfiguration.class)
 		String[] locations();
 	}
 
@@ -2257,6 +2447,8 @@ class MergedAnnotationsTests {
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface HalfConventionBasedAndHalfAliasedComposedContextConfiguration {
 
+		// Do NOT use @AliasFor here until Spring 6.1
+		// @AliasFor(annotation = ContextConfiguration.class)
 		String[] locations() default {};
 
 		@AliasFor(annotation = ContextConfiguration.class, attribute = "locations")
@@ -2378,9 +2570,13 @@ class MergedAnnotationsTests {
 		@AliasFor(annotation = ContextConfiguration.class, attribute = "locations")
 		String[] locations() default {};
 
+		// Do NOT use @AliasFor(annotation = ...) here until Spring 6.1
+		// @AliasFor(annotation = ContextConfiguration.class, attribute = "classes")
 		@AliasFor("value")
 		Class<?>[] classes() default {};
 
+		// Do NOT use @AliasFor(annotation = ...) here until Spring 6.1
+		// @AliasFor(annotation = ContextConfiguration.class, attribute = "classes")
 		@AliasFor("classes")
 		Class<?>[] value() default {};
 	}
@@ -2417,6 +2613,8 @@ class MergedAnnotationsTests {
 	@Retention(RetentionPolicy.RUNTIME)
 	@interface ConventionBasedSinglePackageComponentScan {
 
+		// Do NOT use @AliasFor here until Spring 6.1
+		// @AliasFor(annotation = ComponentScan.class)
 		String basePackages();
 	}
 
@@ -2471,7 +2669,7 @@ class MergedAnnotationsTests {
 	}
 
 	@Transactional
-	static interface InterfaceWithInheritedAnnotation {
+	interface InterfaceWithInheritedAnnotation {
 
 		@Order
 		void handleFromInterface();
@@ -2941,7 +3139,17 @@ class MergedAnnotationsTests {
 	}
 
 	enum RequestMethod {
-		GET, POST
+		GET,
+
+		POST;
+
+		/**
+		 * custom override to verify annotation toString() implementations.
+		 */
+		@Override
+		public String toString() {
+			return "method: " + name().toLowerCase();
+		}
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)
@@ -2956,6 +3164,30 @@ class MergedAnnotationsTests {
 		String[] path() default "";
 
 		RequestMethod[] method() default {};
+
+		// ---------------------------------------------------------------------
+		// All remaining attributes declare default values that are used solely
+		// for the purpose of testing the toString() implementations for annotations.
+		Class<?> clazz() default RequestMethod.class;
+		Class<?>[] classes() default {int[][].class, RequestMethod[].class};
+
+		char ch() default 'X';
+		char[] chars() default {'X'};
+
+		byte byteValue() default (byte) 0xFF;
+		byte[] bytes() default {(byte) 0xFF};
+
+		short shortValue() default 9876;
+		short[] shorts() default {9876};
+
+		long longValue() default 42L;
+		long[] longs() default {42L};
+
+		float floatValue() default 3.14F;
+		float[] floats() default {3.14F};
+
+		double doubleValue() default 99.999D;
+		double[] doubles() default {99.999D};
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)
@@ -2973,6 +3205,8 @@ class MergedAnnotationsTests {
 	@RequestMapping(method = RequestMethod.POST, name = "")
 	@interface PostMapping {
 
+		// Do NOT use @AliasFor here until Spring 6.1
+		// @AliasFor(annotation = RequestMapping.class)
 		String path() default "";
 	}
 
@@ -3011,14 +3245,14 @@ class MergedAnnotationsTests {
 	}
 
 	/**
-	 * Mimics javax.persistence.Id
+	 * Mimics jakarta.persistence.Id
 	 */
 	@Retention(RUNTIME)
 	@interface Id {
 	}
 
 	/**
-	 * Mimics javax.persistence.GeneratedValue
+	 * Mimics jakarta.persistence.GeneratedValue
 	 */
 	@Retention(RUNTIME)
 	@interface GeneratedValue {
@@ -3029,6 +3263,59 @@ class MergedAnnotationsTests {
 	@GeneratedValue(strategy = "AUTO")
 	private Long getId() {
 		return 42L;
+	}
+
+	/**
+	 * Mimics org.springframework.security.config.annotation.authentication.configuration.EnableGlobalAuthentication
+	 */
+	@Retention(RUNTIME)
+	@interface EnableGlobalAuthentication {
+	}
+
+	/**
+	 * Mimics org.springframework.security.config.annotation.web.configuration.EnableWebSecurity
+	 */
+	@Retention(RUNTIME)
+	@EnableGlobalAuthentication
+	@interface EnableWebSecurity {
+	}
+
+	@EnableWebSecurity
+	static class SecurityConfig {
+	}
+
+	@Retention(RetentionPolicy.RUNTIME)
+	@Target({ ElementType.FIELD, ElementType.ANNOTATION_TYPE })
+	@interface RootAnnotation {
+		String value() default "";
+		boolean flag() default false;
+	}
+
+	@RootAnnotation
+	@Retention(RetentionPolicy.RUNTIME)
+	@Target({ ElementType.FIELD, ElementType.ANNOTATION_TYPE })
+	@interface ComposedRootAnnotation {
+
+		@AliasFor(annotation = RootAnnotation.class, attribute = "flag")
+		boolean enabled() default true;
+	}
+
+	@Retention(RetentionPolicy.RUNTIME)
+	@Target(ElementType.FIELD)
+	@ComposedRootAnnotation
+	@interface DoublyComposedRootAnnotation {
+	}
+
+	class DomainType {
+
+		@RootAnnotation
+		Object directlyAnnotated;
+
+		@ComposedRootAnnotation
+		Object metaAnnotated;
+
+		@DoublyComposedRootAnnotation
+		Object metaMetaAnnotated;
 	}
 
 	@Retention(RetentionPolicy.RUNTIME)

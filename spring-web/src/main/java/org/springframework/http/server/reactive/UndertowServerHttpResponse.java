@@ -35,7 +35,7 @@ import org.springframework.core.io.buffer.DataBuffer;
 import org.springframework.core.io.buffer.DataBufferFactory;
 import org.springframework.core.io.buffer.DataBufferUtils;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ZeroCopyHttpOutputMessage;
 import org.springframework.lang.Nullable;
@@ -81,12 +81,13 @@ class UndertowServerHttpResponse extends AbstractListenerServerHttpResponse impl
 	}
 
 	@Override
-	public HttpStatus getStatusCode() {
-		HttpStatus status = super.getStatusCode();
-		return (status != null ? status : HttpStatus.resolve(this.exchange.getStatusCode()));
+	public HttpStatusCode getStatusCode() {
+		HttpStatusCode status = super.getStatusCode();
+		return (status != null ? status : HttpStatusCode.valueOf(this.exchange.getStatusCode()));
 	}
 
 	@Override
+	@Deprecated
 	public Integer getRawStatusCode() {
 		Integer status = super.getRawStatusCode();
 		return (status != null ? status : this.exchange.getStatusCode());
@@ -94,9 +95,9 @@ class UndertowServerHttpResponse extends AbstractListenerServerHttpResponse impl
 
 	@Override
 	protected void applyStatusCode() {
-		Integer status = super.getRawStatusCode();
+		HttpStatusCode status = super.getStatusCode();
 		if (status != null) {
-			this.exchange.setStatusCode(status);
+			this.exchange.setStatusCode(status.value());
 		}
 	}
 
@@ -198,7 +199,7 @@ class UndertowServerHttpResponse extends AbstractListenerServerHttpResponse impl
 				return false;
 			}
 
-			// Track write listener calls from here on..
+			// Track write listener calls from here on.
 			this.writePossible = false;
 
 			// In case of IOException, onError handling should call discardData(DataBuffer)..
@@ -212,7 +213,7 @@ class UndertowServerHttpResponse extends AbstractListenerServerHttpResponse impl
 				return false;
 			}
 
-			// We wrote all, so can still write more..
+			// We wrote all, so can still write more.
 			this.writePossible = true;
 
 			DataBufferUtils.release(dataBuffer);
@@ -287,7 +288,7 @@ class UndertowServerHttpResponse extends AbstractListenerServerHttpResponse impl
 		protected boolean isWritePossible() {
 			StreamSinkChannel channel = UndertowServerHttpResponse.this.responseChannel;
 			if (channel != null) {
-				// We can always call flush, just ensure writes are on..
+				// We can always call flush, just ensure writes are on.
 				channel.resumeWrites();
 				return true;
 			}

@@ -78,6 +78,7 @@ public class MockClientHttpRequest extends MockHttpOutputMessage implements Clie
 	}
 
 	@Override
+	@Deprecated
 	public String getMethodValue() {
 		return this.httpMethod.name();
 	}
@@ -114,7 +115,7 @@ public class MockClientHttpRequest extends MockHttpOutputMessage implements Clie
 	 * The default implementation returns the configured
 	 * {@link #setResponse(ClientHttpResponse) response}.
 	 * <p>Override this method to execute the request and provide a response,
-	 * potentially different than the configured response.
+	 * potentially different from the configured response.
 	 */
 	protected ClientHttpResponse executeInternal() throws IOException {
 		Assert.state(this.clientHttpResponse != null, "No ClientHttpResponse");

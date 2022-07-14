@@ -18,7 +18,6 @@ package org.springframework.web.cors;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -65,11 +64,10 @@ public class CorsConfiguration {
 
 	private static final List<String> DEFAULT_PERMIT_ALL = Collections.singletonList(ALL);
 
-	private static final List<HttpMethod> DEFAULT_METHODS = Collections.unmodifiableList(
-			Arrays.asList(HttpMethod.GET, HttpMethod.HEAD));
+	private static final List<HttpMethod> DEFAULT_METHODS = List.of(HttpMethod.GET, HttpMethod.HEAD);
 
-	private static final List<String> DEFAULT_PERMIT_METHODS = Collections.unmodifiableList(
-			Arrays.asList(HttpMethod.GET.name(), HttpMethod.HEAD.name(), HttpMethod.POST.name()));
+	private static final List<String> DEFAULT_PERMIT_METHODS = List.of(HttpMethod.GET.name(),
+			HttpMethod.HEAD.name(), HttpMethod.POST.name());
 
 
 	@Nullable
@@ -133,7 +131,7 @@ public class CorsConfiguration {
 	 * is rejected in favor of using {@link #setAllowedOriginPatterns
 	 * allowedOriginPatterns} instead.
 	 * <p>By default this is not set which means that no origins are allowed.
-	 * However an instance of this class is often initialized further, e.g. for
+	 * However, an instance of this class is often initialized further, e.g. for
 	 * {@code @CrossOrigin}, via {@link #applyPermitDefaultValues()}.
 	 */
 	public void setAllowedOrigins(@Nullable List<String> origins) {
@@ -258,7 +256,7 @@ public class CorsConfiguration {
 					this.resolvedMethods = null;
 					break;
 				}
-				this.resolvedMethods.add(HttpMethod.resolve(method));
+				this.resolvedMethods.add(HttpMethod.valueOf(method));
 			}
 		}
 		else {
@@ -302,7 +300,7 @@ public class CorsConfiguration {
 				this.resolvedMethods = null;
 			}
 			else if (this.resolvedMethods != null) {
-				this.resolvedMethods.add(HttpMethod.resolve(method));
+				this.resolvedMethods.add(HttpMethod.valueOf(method));
 			}
 		}
 	}
@@ -447,7 +445,7 @@ public class CorsConfiguration {
 		if (this.allowedMethods == null) {
 			this.allowedMethods = DEFAULT_PERMIT_METHODS;
 			this.resolvedMethods = DEFAULT_PERMIT_METHODS
-					.stream().map(HttpMethod::resolve).collect(Collectors.toList());
+					.stream().map(HttpMethod::valueOf).collect(Collectors.toList());
 		}
 		if (this.allowedHeaders == null) {
 			this.allowedHeaders = DEFAULT_PERMIT_ALL;
@@ -459,7 +457,7 @@ public class CorsConfiguration {
 	}
 
 	/**
-	 * Validate that when {@link #setAllowCredentials allowCredentials} is true,
+	 * Validate that when {@link #setAllowCredentials allowCredentials} is {@code true},
 	 * {@link #setAllowedOrigins allowedOrigins} does not contain the special
 	 * value {@code "*"} since in that case the "Access-Control-Allow-Origin"
 	 * cannot be set to {@code "*"}.
